@@ -6,7 +6,6 @@ var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
 
 var routes = require('./routes/index');
-var bitgoWebhook = require('./routes/bitgoWebhook');
 var messengerWebhook = require('./routes/messengerWebhook');
 var users = require('./routes/users');
 
@@ -40,7 +39,6 @@ app.use(function(req, res, next) {
 });
 
 app.use('/', routes);
-app.use('/bitgo-auth', bitgoWebhook);
 app.use('/users', users);
 app.use('/webhook', messengerWebhook);
 
