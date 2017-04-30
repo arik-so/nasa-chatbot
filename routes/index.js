@@ -6,7 +6,7 @@ var request = require('request-promise');
 
 /* GET home page. */
 router.get('/', function(req, res, next) {
-  res.render('index', { title: 'Express' });
+  res.render('index', { title: 'NASA Data Concierge' });
 });
 
 module.exports = router;

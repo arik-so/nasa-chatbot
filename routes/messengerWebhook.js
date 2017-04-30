@@ -19,7 +19,7 @@ router.get('/', function(req, res, next) {
 router.post('/', Promise.coroutine(
 function *messengerWebhook(req, res) {
   res.sendStatus(200);
-  messaging_events = req.body.entry[0].messaging;
+  const messaging_events = req.body.entry[0].messaging;
   for (i = 0; i < messaging_events.length; i++) {
     event = req.body.entry[0].messaging[i];
     sender = event.sender.id;
