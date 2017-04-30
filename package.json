@@ -16,10 +16,8 @@
     "express": "~4.13.1",
     "jade": "~1.11.0",
     "morgan": "~1.6.1",
-    "mysql": "^2.10.2",
     "node-sass-middleware": "0.8.0",
     "node-schedule": "~1.1.0",
-    "q": "^1.5.0",
     "request-promise": "~3.0.0",
     "sequelize": "~3.22.0",
     "serve-favicon": "~2.3.0"
