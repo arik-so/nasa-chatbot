@@ -14,6 +14,8 @@ const connection = mysql.createConnection({
     user: 'root',
     database: 'nasa-chatbot'
 });
+const LIMIT = 100;
+const TABLE_NAME = 'wildfire';
 
 module.exports = Promise.coroutine(
     function *(req, res, text) {
@@ -21,22 +23,45 @@ module.exports = Promise.coroutine(
         let messengerUser = req.messengerUser;
         const aiResponse = yield apiai.textRequest(text, {sessionId: messengerUser.messengerID});
 
-        const aiResponseText = aiResponse.result.fulfillment.speech;
-        searchDB(aiResponse.result.parameters).then(function (res) {
-            console.log(`Sending to chat bot, "${res}"`);
-            const payload = {text: res};
-            try {
-                ChatController.sendMessage(messengerUser, payload);
-            } catch (e) {
-                console.trace(e);
-            }
-            console.log('here');
-        }).catch(function (error) {
-            console.log('Error in promise', error)
-        });
+        searchDB(aiResponse.result.parameters)
+            .then(function (dbResults) {
+                let res = prepareResponse(dbResults, aiResponse.result.parameters, aiResponse.resolvedQuery);
+                console.log(`Sending to chat bot, "${dbResults}"`);
+                const payload = {text: dbResults};
+                try {
+                    ChatController.sendMessage(messengerUser, payload);
+                } catch (e) {
+                    console.trace(e);
+                }
+            })
+            .catch(function (error) {
+                console.log('Error in promise', error)
+            });
 
 
     });
+/**
+ * Prepare a response to user
+ * @param results: DB rows
+ * @param params: api.ai parameters object
+ * @param userQuery: English sentence sent by the user
+ * @returns {string}: Response to be sent to bot
+ */
+function prepareResponse(results, params, userQuery) {
+    let total = results.length;
+    let response = "";
+    if (total === LIMIT) {
+        response = `There are more than a ${LIMIT} of them. Here is the worst one, ${JSON.stringify(results[0])}`;
+    }
+    else if (total === 0) {
+        response = `OOPS! Nothing found based on what you asked. I only know about the fires in USA from April 22, 2017. Try asking more generic questions`;
+    }
+    else {
+        response = `There are ${LIMIT} of them. Here is the worst one, ${JSON.stringify(results[0])}`;
+    }
+    console.log(response);
+    return response;
+}
 
 function searchDB(params) {
     // brightness - bright, strongest, weakest - 200 to 400
@@ -76,17 +101,17 @@ function searchDB(params) {
             case "last night":
                 let today = new Date();
                 let yesterday = today.setDate(today.getDate() - 1);
-                conditions.push(`acq_date = ${dbDateFormat(yesterday)}`);
+                conditions.push(`acq_date = '${dbDateFormat(yesterday)}'`);
                 conditions.push(`daynight = 'N'`);
                 break;
             case "day":
                 conditions.push(`daynight = 'D'`);
                 break;
             case "today":
-                conditions.push(`acq_date = ${dbDateFormat()}`);
+                conditions.push(`acq_date = '${dbDateFormat()}'`);
                 break;
             case "past":
-                conditions.push(`acq_date < ${dbDateFormat()}`);
+                conditions.push(`acq_date < '${dbDateFormat()}'`);
                 break;
             default:
                 break;
@@ -95,13 +120,13 @@ function searchDB(params) {
 
     let date_condition = (params.date || "").toLocaleLowerCase().trim();
     if (date_condition.length > 0) {
-        conditions.push(`acq_date = ${date_condition}`);
+        conditions.push(`acq_date = '${date_condition}'`);
     }
 
     let date_period_condition = (params['date-period'] || "").toLocaleLowerCase().trim();
     if (date_period_condition.length > 0) {
         let [from_date, to_date] = date_period_condition.split("/");
-        conditions.push(`acq_date BETWEEN ${from_date || dbDateFormat()} AND ${to_date || dbDateFormat()}`);
+        conditions.push(`acq_date BETWEEN '${from_date || dbDateFormat()}' AND '${to_date || dbDateFormat()}'`);
     }
 
     let city_condition = (params['geo-city-us'] || params['geo-city'] || "").toLocaleLowerCase().trim();
@@ -126,28 +151,15 @@ function searchDB(params) {
     //     conditions.push(`LOWER(continent) = ${continent_condition}`);
     // }
 
-    const LIMIT = 100;
-    const TABLE_NAME = 'wildfire';
     if (conditions.length > 0) {
         const query = `SELECT brightness, acq_date, acq_time, city, country FROM ${TABLE_NAME} WHERE ${conditions.join(" AND ") } ORDER BY brightness DESC LIMIT ${LIMIT}`;
+        console.log(`${new Date()}: Query: ${query}`);
         connection.connect(); // TODO: BAD Way. Open once and use many times
         connection.query(query, function (error, results, fields) {
             if (error) {
                 deferred.reject(new Error(error));
             } else {
-                let total = results.length;
-                let response = "";
-                if (total === LIMIT) {
-                    response = `There are more than a ${LIMIT} of them. Here is the worst one, ${JSON.stringify(results[0])}`;
-                }
-                else if (total === 0) {
-                    response = `OOPS! Nothing found based on what you asked. Try asking more generic questions`;
-                }
-                else {
-                    response = `There are ${LIMIT} of them. Here is the worst one, ${JSON.stringify(results[0])}`;
-                }
-                console.log(response);
-                deferred.resolve(response);
+                deferred.resolve(results);
             }
         });
         connection.end();
