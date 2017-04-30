@@ -8,6 +8,8 @@ var Promise = require('bluebird');
 var assert = require('assert');
 const request = require('request-promise');
 const apiai = require('apiai-promise')(process.env.API_AI_TOKEN);
+const dateformat = require('dateformat');
+const _ = require('lodash');
 const LIMIT = 100;
 
 module.exports = Promise.coroutine(function *(req, res, text) {
@@ -15,10 +17,13 @@ module.exports = Promise.coroutine(function *(req, res, text) {
   let messengerUser = req.messengerUser;
   const aiResponse = yield apiai.textRequest(text, { sessionId: messengerUser.messengerID });
 
-  const dbResults = yield searchDB(aiResponse.result.parameters);
-  const newResponse = prepareResponse(dbResults, aiResponse.result.parameters, aiResponse.resolvedQuery);
-  console.log(`Sending to chat bot, "${dbResults}"`);
-  const payload = { text: newResponse };
+  let textResponse = aiResponse.result.fulfillment.speech;
+  if (!textResponse || textResponse.length === 0) {
+    const dbResults = yield searchDB(aiResponse.result.parameters);
+    textResponse = prepareResponse(dbResults, aiResponse.result.parameters, aiResponse.resolvedQuery);
+    console.log(`Sending to chat bot, "${dbResults}"`);
+  }
+  const payload = { text: textResponse };
   try {
     yield ChatController.sendMessage(messengerUser, payload);
   } catch (e) {
@@ -39,18 +44,22 @@ function prepareResponse(results, params, userQuery) {
   }
   let total = results.length;
   let response = "";
-  if (total === LIMIT) {
-    response = `There are more than a ${LIMIT} of them. Here is the worst one, ${JSON.stringify(results[0].toJSON())}`;
+  if (total > LIMIT) {
+    response = `There were more than ${LIMIT} of them. Here is the worst one, which was ${describeFire(results[0])}.`;
   }
   else if (total === 0) {
     response = `OOPS! Nothing found based on what you asked. I only know about the fires in USA from April 22, 2017. Try asking more generic questions`;
   }
   else {
-    response = `There are ${LIMIT} of them. Here is the worst one, ${JSON.stringify(results[0].toJSON())}`;
+    response = `There were ${total} of them. Here is the worst one, which was ${describeFire(results[0])}.`;
   }
   console.log(response);
   return response;
 }
+
+const describeFire = (wildfire) => {
+  return `near ${wildfire.city}, ${wildfire.country}, burning at ${wildfire.brightness} lumens, at the coordinates (${wildfire.latitude}|${wildfire.longitude}) on ${dateformat(wildfire.acq_date, 'dddd, mmmm dS yyyy')}`;
+};
 
 const searchDB = Promise.coroutine(function *(params) {
   // brightness - bright, strongest, weakest - 200 to 400
@@ -123,18 +132,26 @@ const searchDB = Promise.coroutine(function *(params) {
   }
 
   let city_condition = (params['geo-city-us'] || params['geo-city'] || "").toLocaleLowerCase().trim();
-  if (city_condition.length > 0) {
+  let state_condition = (params['geo-state-us'] || "").toLocaleLowerCase().trim();
+  const localeCondition = city_condition || state_condition;
+
+  if (localeCondition.length > 0) {
     // look up google's location details
-    const lookupUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(city_condition)}&key=${process.env.GOOGLE_API_TOKEN}`;
+    const lookupUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(localeCondition)}&key=${process.env.GOOGLE_API_TOKEN}`;
     const lookupResult = yield request({ url: lookupUrl, json: true });
+
     if (lookupResult && lookupResult.results && lookupResult.results.length > 0) {
       const bounds = lookupResult.results[0].geometry.bounds;
       conditions.latitude = {
-        between: [bounds.northeast.lat, bounds.southwest.lat]
+        between: [bounds.northeast.lat, bounds.southwest.lat].sort((a, b) => { return a - b; })
       };
       conditions.longitude = {
-        between: [bounds.northeast.lng, bounds.southwest.lng]
+        between: [bounds.northeast.lng, bounds.southwest.lng].sort((a, b) => { return a - b; })
       };
+
+      // filter by the country, too
+      const countryDetails = _.find(lookupResult.results[0].address_components, { types: ['political', 'country'] });
+      conditions.country = countryDetails.long_name;
     }
   }
 
@@ -157,7 +174,7 @@ const searchDB = Promise.coroutine(function *(params) {
 
   if (Object.keys(conditions).length > 0) {
     // get the sequelize model
-    return models.Wildfire.findAll({ where: conditions });
+    return models.Wildfire.findAll({ where: conditions, order: 'brightness DESC', limit: LIMIT + 1 });
   }
   return null;
 });

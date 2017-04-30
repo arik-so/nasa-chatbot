@@ -2,8 +2,8 @@
 
 module.exports = function(sequelize, DataTypes) {
   const Wildfire = sequelize.define('Wildfire', {
-    latitude: { type: DataTypes.CHAR, unique: false, allowNull: true },
-    longitude: { type: DataTypes.CHAR, unique: false, allowNull: true },
+    latitude: { type: DataTypes.DECIMAL, unique: false, allowNull: true },
+    longitude: { type: DataTypes.DECIMAL, unique: false, allowNull: true },
     brightness: { type: DataTypes.FLOAT, unique: false, allowNull: true },
     scan: { type: DataTypes.FLOAT, unique: false, allowNull: true },
     track: { type: DataTypes.FLOAT, unique: false, allowNull: true },
